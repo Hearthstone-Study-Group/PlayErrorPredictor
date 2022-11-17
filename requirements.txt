@@ -6,3 +6,4 @@ tensorboard
 numpy
 scipy
 scikit-learn
+nltk

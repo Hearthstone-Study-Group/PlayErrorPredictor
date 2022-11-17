@@ -112,8 +112,10 @@ class OfficialLoader(CustomLoader):
         # self.train_data.to_csv(os.path.join(self.data_dir, self.augmentation_data_filename))
         # self.train_data = self.train_data.sample(frac=1, axis=1).reset_index(drop=True)
 
-    def process(self, input_name, output_name):
-        pass
+    def process(self):
+        self.all_data = self.all_data[self.all_data.has_requirement == True].reset_index()
+        # self.all_data = self.all_data.head(5)
+        print(self.all_data)
         # if os.path.isfile(os.path.join(self.data_dir, output_name)):
         #     logging.info(
         #         f"[process] output file exists: {os.path.join(self.data_dir, output_name)}")

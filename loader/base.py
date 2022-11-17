@@ -2,7 +2,7 @@
 import sys
 import os
 import os.path
-from sklearn.metrics import precision_score, recall_score, f1_score, classification_report, confusion_matrix
+from sklearn.metrics import precision_score, recall_score, f1_score, classification_report, multilabel_confusion_matrix
 import numpy as np
 import logging
 import pandas as pd
@@ -59,11 +59,13 @@ class BaseLoader:
         logging.debug(f"Final evaluation data header:")
         logging.debug(self.final_data.head())
 
-    def eval(self, labels, predictions):
-        task_confusion_matrix = confusion_matrix(labels, predictions)
-        task_precision = precision_score(labels, predictions)
-        task_recall = recall_score(labels, predictions)
-        task_f1 = f1_score(labels, predictions)
+    def eval(self, labels, predictions, threshold=0.5):
+        predictions[predictions >= threshold] = 1
+        predictions[predictions < threshold] = 0
+        task_confusion_matrix = multilabel_confusion_matrix(labels, predictions)
+        task_precision = precision_score(labels, predictions, average='weighted')
+        task_recall = recall_score(labels, predictions, average='weighted')
+        task_f1 = f1_score(labels, predictions, average='weighted')
 
         file_path = os.path.join(self.storage_folder, self.score_filename)
         with open(file_path, "w") as score_file:
@@ -71,8 +73,8 @@ class BaseLoader:
             score_file.write('task1_recall:' + str(task_recall) + '\n')
             score_file.write('task1_f1:' + str(task_f1) + '\n')
 
-        logging.info(f"Confusion matrix")
-        logging.info(task_confusion_matrix)
+        #logging.info(f"Confusion matrix")
+        #logging.info(task_confusion_matrix)
         logging.info(f"Precision score")
         logging.info(task_precision)
         logging.info(f"Recall score")
@@ -81,11 +83,13 @@ class BaseLoader:
         logging.info(task_f1)
         logging.info(f"Score file written to {file_path}")
 
-    def eval_per(self, labels, predictions, class_name, class_value):
-        task_confusion_matrix = confusion_matrix(labels, predictions)
-        task_precision = precision_score(labels, predictions)
-        task_recall = recall_score(labels, predictions)
-        task_f1 = f1_score(labels, predictions)
+    def eval_per(self, labels, predictions, class_name, class_value, threshold=0.5):
+        predictions[predictions >= threshold] = 1
+        predictions[predictions < threshold] = 0
+        task_confusion_matrix = multilabel_confusion_matrix(labels, predictions)
+        task_precision = precision_score(labels, predictions, average='weighted')
+        task_recall = recall_score(labels, predictions, average='weighted')
+        task_f1 = f1_score(labels, predictions, average='weighted')
         filename = "score" + f'{class_name}_{class_value}.txt'
         file_path = os.path.join(self.storage_folder, filename)
         with open(file_path, "w") as score_file:
@@ -95,8 +99,8 @@ class BaseLoader:
             score_file.write(f'{class_name}_{class_value} total_samples:' + str(len(labels)) + '\n')
 
         logging.info(f'{class_name}_{class_value} result:')
-        logging.info(f"Confusion matrix")
-        logging.info(task_confusion_matrix)
+        #logging.info(f"Confusion matrix")
+        #logging.info(task_confusion_matrix)
         logging.info(f"Precision score")
         logging.info(task_precision)
         logging.info(f"Recall score")

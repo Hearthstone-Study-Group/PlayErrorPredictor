@@ -1,5 +1,5 @@
 import transformers
-
+from loader.tags import get_tag_name, get_tag_id
 from loader.base import BaseLoader
 from transformers import DebertaV2Tokenizer, DebertaV2ForSequenceClassification, AdamW, BertConfig, TrainingArguments, \
     Trainer
@@ -20,11 +20,12 @@ def flat_accuracy(preds, labels):
 
 
 class DebertaV2XLarge:
-    train_epochs = 1
+    train_epochs = 50
     eval_while_training = True
-    batch_size = 3
+    batch_size = 6
     eval_step_size = 700
     skip_eval = True
+    num_labels = 128
     tokenizer = DebertaV2Tokenizer.from_pretrained("microsoft/deberta-v2-xlarge")
 
     def __init__(self, loader: BaseLoader, load_existing=False, skip_eval=False, save_prob=False, half_precision=True):
@@ -40,7 +41,7 @@ class DebertaV2XLarge:
             local_files_only = True
         self.model = DebertaV2ForSequenceClassification.from_pretrained(
             model_name,
-            num_labels=128,
+            num_labels=self.num_labels,
             problem_type="multi_label_classification",
             output_attentions=False,
             output_hidden_states=False,
@@ -174,8 +175,8 @@ class DebertaV2XLarge:
             # Evaluation
             self.model.eval()
             if not self.skip_eval:
-                labels = np.array([])
-                predictions = np.array([])
+                labels = None
+                predictions = None
                 eval_loss = 0
                 # total_eval_accuracy = 0
                 with tqdm.tqdm(self.test_loader, unit="batch") as tepoch:
@@ -184,16 +185,21 @@ class DebertaV2XLarge:
                             result = self.model(torch.stack(data['input_ids']).T.cuda(),
                                                 token_type_ids=None,
                                                 attention_mask=torch.stack(data['attention_mask']).T.cuda(),
-                                                labels=torch.tensor(data['label']).cuda(),
+                                                labels=torch.tensor([item.numpy() for item in data['label']]).T.cuda(),
                                                 return_dict=True)
                             loss = result.loss
                             logits = result.logits
-                            label_ids = torch.tensor(data['label']).numpy()
+                            label_ids = torch.tensor([item.numpy() for item in data['label']]).T.numpy()
                             # total_eval_accuracy += flat_accuracy(logits, label_ids)
                             eval_loss += loss.item()
-                            onehot = np.argmax(logits.detach().cpu().numpy(), axis=-1)
-                            labels = np.concatenate([labels, data['label'].numpy()])
-                            predictions = np.concatenate([predictions, onehot])
+                            if labels is None:
+                                labels = np.array([item.numpy() for item in data['label']]).T
+                            else:
+                                labels = np.concatenate([labels, np.array([item.numpy() for item in data['label']]).T])
+                            if predictions is None:
+                                predictions = logits.detach().cpu().numpy()
+                            else:
+                                predictions = np.concatenate([predictions, logits.detach().cpu().numpy()])
                             tepoch.set_description(f"Evaluation {epoch}")
                             tepoch.set_postfix(Loss=loss.item())
                 # avg_val_accuracy = total_eval_accuracy / len(self.test_loader)
@@ -202,6 +208,32 @@ class DebertaV2XLarge:
                 self.data_loader.eval(labels, predictions)
             self.final(epoch)
             self.model.save_pretrained(os.path.join(self.data_loader.storage_folder, "output", "checkpoint-{}".format(epoch)))
+
+
+    def test(self, data):
+        self.model.eval()
+        data = self.tokenize_function(data)
+        print(data)
+        with torch.no_grad():
+            result = self.model(torch.tensor(data['input_ids']).unsqueeze(0).cuda(),
+                                token_type_ids=None,
+                                attention_mask=torch.tensor(data['attention_mask']).unsqueeze(0).cuda(),
+                                return_dict=True)
+            loss = result.loss
+            logits = result.logits
+            probs = logits.squeeze().detach().cpu().numpy()
+            # probs = (probs - probs.min()) / (probs.max() - probs.min())
+            tags = {}
+            print("************ Predictions ***************")
+            for index, prob in enumerate(probs):
+                name = get_tag_name(index)
+                if name != "INVALID":
+                    tags[name] = prob
+            tags = dict(sorted(tags.items(), key=lambda item: item[1]))
+            for key in tags:
+                print(f"{key}: {tags[key]}")
+
+
 
     def predict(self):
         self.test_dataset = Dataset.from_pandas(pd.DataFrame(self.data_loader.test_data))
@@ -238,6 +270,7 @@ class DebertaV2XLarge:
             self.data_loader.prob(labels, probs)
 
     def final(self, epoch_num=''):
+        return
         self.final_dataset = Dataset.from_pandas(pd.DataFrame(self.data_loader.final_data))
         self.encoded_final_dataset = self.final_dataset.map(self.tokenize_function, batched=True)
         self.final_loader = DataLoader(self.encoded_final_dataset,
@@ -268,6 +301,7 @@ class DebertaV2XLarge:
             self.data_loader.final_prob(probs)
  
     def final_with_threshold(self, epoch_num='', threshold=0.90056336):
+        return
         self.final_dataset = Dataset.from_pandas(pd.DataFrame(self.data_loader.final_data))
         self.encoded_final_dataset = self.final_dataset.map(self.tokenize_function, batched=True)
         self.final_loader = DataLoader(self.encoded_final_dataset,
